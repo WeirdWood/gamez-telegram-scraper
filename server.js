@@ -22,12 +22,15 @@ app.get("/cron", async (request, response) => {
 
   pressBossBtn(botNA.inputPeer, botNA.msg_id, botNA.buttons);
   pressBossBtn(botEU.inputPeer, botEU.msg_id, botEU.buttons);
-  await Promise.all([processBossMsg("NA", botNA.msg_id), processBossMsg("EU", botEU.msg_id)]);
+
+  botNA.name = "NA";
+  botEU.name = "EU";
+  await processBossMsg(botNA, botEU);
 
   response.status(200).send("Job done!");
 });
-
-const listener = app.listen(process.env.PORT, () => {
+//process.env.PORT
+const listener = app.listen(3000, () => {
   console.log("Your app is listening on port " + listener.address().port);
 });
 
@@ -64,34 +67,56 @@ async function getBotInfo(bot_name) {
   return { inputPeer: inputPeer, msg_id: msg_id, buttons: buttons };
 }
 
-async function processBossMsg(name, msg_id) {
+async function processBossMsg(botNA, botEU) {
+  var promises = [];
+  var na = new Promise(function (resolve, reject) {
+    promises.push({ resolve: resolve, reject: reject });
+  });
+  var eu = new Promise(function (resolve, reject) {
+    promises.push({ resolve: resolve, reject: reject });
+  });
+
   api.getMTProto().updates.on("updates", ({ updates }) => {
     const editedMessages = updates.filter((update) => update._ === "updateEditMessage").map(({ message }) => message);
 
     editedMessages.forEach((message) => {
-      if (message.id === msg_id) {
-        let resultJson = convertMsg(message.message);
-        let config = {
-          headers: {
-            [process.env.PRESHARED_AUTH_HEADER_KEY]: process.env.PRESHARED_AUTH_HEADER_VALUE,
-          },
-        };
-
-        axios
-          .post(
-            `${process.env.CF_WORKER_URL}/bosses`,
-            {
-              name: name,
-              contents: JSON.stringify(resultJson),
-            },
-            config
-          )
-          .catch((error) => {
-            console.error(error);
-          });
+      if (message.id === botNA.msg_id) {
+        postBossMsg(message, botNA).then(() => {
+          promises[0].resolve(true);
+        });
+      } else if (message.id === botEU.msg_id) {
+        postBossMsg(message, botEU).then(() => {
+          promises[1].resolve(true);
+        });
       }
     });
   });
+  
+  await Promise.all([na, eu]).then(() => {
+    api.getMTProto().updates.removeAllListeners("updates");
+  });
+}
+
+async function postBossMsg(message, bot) {
+  let resultJson = convertMsg(message.message);
+  let config = {
+    headers: {
+      [process.env.PRESHARED_AUTH_HEADER_KEY]: process.env.PRESHARED_AUTH_HEADER_VALUE,
+    },
+  };
+
+  await axios
+    .post(
+      `${process.env.CF_WORKER_URL}/bosses`,
+      {
+        name: bot.name,
+        contents: JSON.stringify(resultJson),
+      },
+      config
+    )
+    .catch((error) => {
+      console.error(error);
+    });
 }
 
 function convertMsg(msg) {
