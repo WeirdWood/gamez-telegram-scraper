@@ -1,5 +1,8 @@
+require("dotenv").config();
+
 const express = require("express");
-const app = express();
+const axios = require("axios");
+const sortBy = require("lodash.sortby");
 
 const api = require("./api");
 const auth = require("./auth");
@@ -7,17 +10,19 @@ const auth = require("./auth");
 const NA_bot = "gamezbd_na_bot";
 const EU_bot = "gamezbd_eu_bot";
 
+const app = express();
+
 //Authenticate when server starts
 (async () => {
   await auth.auth(process.env.PHONE_NUMBER);
 })();
 
 app.get("/cron", async (request, response) => {
-  const botNA = await getBotInfo(NA_bot);
-  const botEU = await getBotInfo(EU_bot);
+  const [botNA, botEU] = await Promise.all([getBotInfo(NA_bot), getBotInfo(EU_bot)]);
 
   pressBossBtn(botNA.inputPeer, botNA.msg_id, botNA.buttons);
-  await processBossMsg(botNA.msg_id);
+  pressBossBtn(botEU.inputPeer, botEU.msg_id, botEU.buttons);
+  await Promise.all([processBossMsg("NA", botNA.msg_id), processBossMsg("EU", botEU.msg_id)]);
 
   response.status(200).send("Job done!");
 });
@@ -62,13 +67,31 @@ async function getBotInfo(bot_name) {
   return { inputPeer: inputPeer, msg_id: msg_id, buttons: buttons };
 }
 
-async function processBossMsg(msg_id) {
+async function processBossMsg(name, msg_id) {
   api.getMTProto().updates.on("updates", ({ updates }) => {
     const editedMessages = updates.filter((update) => update._ === "updateEditMessage").map(({ message }) => message);
 
     editedMessages.forEach((message) => {
       if (message.id === msg_id) {
-        console.log(convertMsg(message.message));
+        let resultJson = convertMsg(message.message);
+        let config = {
+          headers: {
+            [process.env.PRESHARED_AUTH_HEADER_KEY]: process.env.PRESHARED_AUTH_HEADER_VALUE,
+          },
+        };
+
+        axios
+          .post(
+            `${process.env.CF_WORKER_URL}/bosses`,
+            {
+              name: name,
+              contents: JSON.stringify(resultJson),
+            },
+            config
+          )
+          .catch((error) => {
+            console.error(error);
+          });
       }
     });
   });
@@ -80,19 +103,20 @@ function convertMsg(msg) {
   msg = msg.substring(msg.indexOf("\n") + 1);
 
   var data = msg.split("\n\n");
-  var channelData = [];
+  var bossesData = [];
 
   data.forEach((channelText) => {
-    var ret = {};
-    ret.name = channelText.substring(0, channelText.indexOf("\n"));
-    ret.bosses = mapLinetoArray(channelText.substring(channelText.indexOf("\n") + 1));
-    channelData.push(ret);
+    const chName = channelText.substring(0, channelText.indexOf("\n"));
+    let tmp = mapLinetoArray(chName, channelText.substring(channelText.indexOf("\n") + 1));
+    bossesData = bossesData.concat(tmp);
   });
 
-  return channelData;
+  bossesData = sortBy(bossesData, "time");
+
+  return { status: 200, data: bossesData };
 }
 
-function mapLinetoArray(data) {
+function mapLinetoArray(chName, data) {
   var ret = [];
   var splitArr = data.split("\n");
 
@@ -101,8 +125,8 @@ function mapLinetoArray(data) {
     bossData[0] = bossData[0].replace("- ", "");
     bossData[1] = bossData[1].replace(/ *\([^)]*\) */g, "");
     bossData[1] = new Date(bossData[1] + " GMT");
-    
-    let tmp = { name: bossData[0], time: bossData[1] };
+
+    let tmp = { name: bossData[0], server: chName, time: bossData[1] };
     ret.push(tmp);
   });
 
