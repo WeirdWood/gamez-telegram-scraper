@@ -3,6 +3,7 @@ require("dotenv").config();
 const express = require("express");
 const axios = require("axios");
 const sortBy = require("lodash.sortby");
+const fs = require("fs");
 
 const api = require("./api");
 const auth = require("./auth");
@@ -20,8 +21,8 @@ const app = express();
 app.get("/cron", async (request, response) => {
   const [botNA, botEU] = await Promise.all([getBotInfo(NA_bot), getBotInfo(EU_bot)]);
 
-  pressBossBtn(botNA.inputPeer, botNA.msg_id, botNA.buttons);
-  pressBossBtn(botEU.inputPeer, botEU.msg_id, botEU.buttons);
+  pressBossBtn(botNA);
+  pressBossBtn(botEU);
 
   botNA.name = "NA";
   botEU.name = "EU";
@@ -34,37 +35,57 @@ const listener = app.listen(process.env.PORT, () => {
   console.log("Your app is listening on port " + listener.address().port);
 });
 
-async function pressBossBtn(inputPeer, msg_id, buttons) {
+async function pressBossBtn(bot) {
   try {
     await api.call("messages.getBotCallbackAnswer", {
       game: false,
-      peer: inputPeer,
-      msg_id: msg_id,
-      data: buttons[1].data,
+      peer: bot.input_peer,
+      msg_id: bot.msg_id,
+      data: bot.buttons,
     });
   } catch (e) {}
 }
 
-async function getBotInfo(bot_name) {
-  const resolvedPeer = await api.call("contacts.resolveUsername", {
-    username: bot_name,
-  });
+async function getBotInfo(name) {
+  try {
+    let rawdata = fs.readFileSync(`./data/${name}.json`);
+    var bot = JSON.parse(rawdata);
 
-  const inputPeer = {
-    _: "inputPeerUser",
-    user_id: resolvedPeer.users[0].id,
-    access_hash: resolvedPeer.users[0].access_hash,
-  };
+    if (process.env.PHONE_NUMBER === bot.phone) {
+      bot.buttons = new Uint8Array([bot.buttons[0], bot.buttons[1], bot.buttons[2], bot.buttons[3], bot.buttons[4]]);
+      return bot;
+    } else {
+      return await resolveNewBotData(name);
+    }
+  } catch (error) {
+    return await resolveNewBotData(name);
+  }
+}
 
+async function resolveNewBotData(name) {
+  const inputPeer = await resolveNewInputPeer(name);
   const firstHistoryResult = await api.call("messages.getHistory", {
     peer: inputPeer,
     limit: 1,
   });
 
-  const buttons = firstHistoryResult.messages[0].reply_markup.rows[0].buttons;
+  const buttons = firstHistoryResult.messages[0].reply_markup.rows[0].buttons[1].data;
   const msg_id = firstHistoryResult.messages[0].id;
 
-  return { inputPeer: inputPeer, msg_id: msg_id, buttons: buttons };
+  const bot = { input_peer: inputPeer, msg_id: msg_id, buttons: buttons, phone: process.env.PHONE_NUMBER };
+  fs.writeFileSync(`./data/${name}.json`, JSON.stringify(bot));
+  return bot;
+}
+
+async function resolveNewInputPeer(name) {
+  const resolvedPeer = await api.call("contacts.resolveUsername", {
+    username: name,
+  });
+  return {
+    _: "inputPeerUser",
+    user_id: resolvedPeer.users[0].id,
+    access_hash: resolvedPeer.users[0].access_hash,
+  };
 }
 
 async function processBossMsg(botNA, botEU) {
@@ -91,7 +112,7 @@ async function processBossMsg(botNA, botEU) {
       }
     });
   });
-  
+
   await Promise.all([na, eu]).then(() => {
     api.getMTProto().updates.removeAllListeners("updates");
   });
