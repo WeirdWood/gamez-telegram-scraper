@@ -145,11 +145,11 @@ function convertMsg(msg) {
   msg = msg.substring(msg.indexOf("\n") + 1);
   msg = msg.substring(msg.indexOf("\n") + 1);
 
-  var data = msg.split("\n\n");
-  var bossesData = [];
+  let data = msg.split("\n\n");
+  let bossesData = [];
 
   data.forEach((channelText) => {
-    const chName = channelText.substring(0, channelText.indexOf("\n"));
+    let chName = channelText.substring(0, channelText.indexOf("\n"));
     let tmp = mapLinetoArray(chName, channelText.substring(channelText.indexOf("\n") + 1));
     bossesData = bossesData.concat(tmp);
   });
@@ -160,16 +160,27 @@ function convertMsg(msg) {
 }
 
 function mapLinetoArray(chName, data) {
-  var ret = [];
-  var splitArr = data.split("\n");
+  let ret = [];
+  let splitArr = data.split("\n");
 
   splitArr.forEach((element) => {
-    let bossData = element.split(" spawns ");
+    let bossData = element.split(" spawn in ");
     bossData[0] = bossData[0].replace("- ", "");
-    bossData[1] = bossData[1].replace(/ *\([^)]*\) */g, "");
-    bossData[1] = new Date(bossData[1] + " GMT");
+    bossData[1] = bossData[1].replace(" left", "");
+    bossData[1] = bossData[1].replace(/h|H|m|M/gi, "");
+    let timeTmp = bossData[1].split(" ");
 
-    let tmp = { name: bossData[0], server: chName, time: bossData[1] };
+    let timeStamp = Date.now();
+    if (timeTmp.length === 1) timeStamp += parseInt(timeTmp[0]) * 60 * 1000;
+    else timeStamp += parseInt(timeTmp[0]) * 60 * 60 * 1000 + parseInt(timeTmp[1]) * 60 * 1000;
+
+    console.log(element + " " + timeStamp);
+    let bossTime = new Date(parseInt(timeStamp)).toISOString();
+
+    //bossData[1] = bossData[1].replace(/ *\([^)]*\) */g, "");
+    //bossData[1] = new Date(bossData[1] + " GMT");
+
+    let tmp = { name: bossData[0], server: chName, time: bossTime };
     ret.push(tmp);
   });
 
