@@ -141,15 +141,14 @@ async function postBossMsg(message, bot) {
 }
 
 function convertMsg(msg) {
-  msg = msg.substring(msg.indexOf("\n") + 1);
-  msg = msg.substring(msg.indexOf("\n") + 1);
-  msg = msg.substring(msg.indexOf("\n") + 1);
+  msg = msg.substring(msg.indexOf("[GamezBD"));
 
   let data = msg.split("\n\n");
   let bossesData = [];
 
   data.forEach((channelText) => {
     let chName = channelText.substring(0, channelText.indexOf("\n"));
+	chName = chName.replace(/[{()}]/g, "").replace(/[^\w\s]/gi, '').trim(); //strip brackets -> special chars -> trim whitespace
     let tmp = mapLinetoArray(chName, channelText.substring(channelText.indexOf("\n") + 1));
     bossesData = bossesData.concat(tmp);
   });
@@ -166,6 +165,7 @@ function mapLinetoArray(chName, data) {
   splitArr.forEach((element) => {
     let bossData = element.split(" spawn in ");
     bossData[0] = bossData[0].replace("- ", "");
+    bossData[0] = bossData[0].replace(/[^\w\s]/gi, '').trim();
     bossData[1] = bossData[1].replace(" left", "");
     bossData[1] = bossData[1].replace(/h|H|m|M/gi, "");
     let timeTmp = bossData[1].split(" ");
